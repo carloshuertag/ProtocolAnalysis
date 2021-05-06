@@ -135,7 +135,7 @@ void packet_handler(u_char *param, const struct pcap_pkthdr *header, const u_cha
 int main() {
 	pcap_if_t *alldevs;
 	pcap_if_t *d;
-	int inum;
+	int inum, quantity;
 	int i = 0;
 	pcap_t *adhandle;
 	struct bpf_program filtercode;
@@ -231,6 +231,9 @@ int main() {
 			fprintf(stderr, "\nError setting the filter\n");
 			continue;
 		}
+		/* Ask how many packets will be captured */
+		printf("\n-1 or 0 value causes all the packets received in one buffer to be processed when reading a live capture, and causes all the packets in the file to be processed when reading a file\nEnter how many packets will be captured: ");
+		scanf("%d", &quantity);
 		printf("\nlistening on %s...\n", d->description);
 		/* At this point, we don't need any more the device list. Free it */
 		pcap_freealldevs(alldevs);
