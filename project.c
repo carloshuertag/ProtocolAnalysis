@@ -238,8 +238,8 @@ int main() {
 		/* At this point, we don't need any more the device list. Free it */
 		pcap_freealldevs(alldevs);
 		/* start the capture without end */
-		(inum == 2147483647) ? pcap_loop(adhandle, 0, packet_handler, NULL):
-		pcap_loop(adhandle, -1, packet_handler, NULL);
+		(inum == 2147483647) ? pcap_loop(adhandle, quantity, packet_handler, NULL):
+		pcap_loop(adhandle, quantity, packet_handler, NULL);
 	} while (i);
 	pcap_close(adhandle);
 	return 0;
