@@ -172,7 +172,9 @@ int main() {
 			fprintf(stderr,"\nUnable to open the file %s\n", source);
 			return -1;
 		}
-		inum = 2147483647;
+		pcap_loop(adhandle, 0, packet_handler, NULL);
+		pcap_close(adhandle);
+		return 0;
 	} else {
 		/* Retrieve the device list */
 		if(pcap_findalldevs(&alldevs, errbuf) == -1) {
@@ -232,13 +234,12 @@ int main() {
 			continue;
 		}
 		/* Ask how many packets will be captured */
-		printf("\n-1 or 0 value causes all the packets received in one buffer to be processed when reading a live capture, and causes all the packets in the file to be processed when reading a file\nEnter how many packets will be captured: ");
+		printf("\n-1 or 0 value causes all the packets received in one buffer to be processed when reading a live capture,\nand causes all the packets in the file to be processed when reading a file\nEnter how many packets will be captured: ");
 		scanf("%d", &quantity);
 		printf("\nlistening on %s...\n", d->description);
 		/* At this point, we don't need any more the device list. Free it */
 		pcap_freealldevs(alldevs);
 		/* start the capture without end */
-		(inum == 2147483647) ? pcap_loop(adhandle, quantity, packet_handler, NULL):
 		pcap_loop(adhandle, quantity, packet_handler, NULL);
 	} while (i);
 	pcap_close(adhandle);
