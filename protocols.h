@@ -1,4 +1,3 @@
-#include <pcap.h>
 /* IPv4 Address */
 typedef struct ipv4_address {
 	u_char a;
@@ -21,6 +20,13 @@ typedef struct ipv4_header {
 	ipv4_address destination_address;
 	u_char options_padding[40];
 } ipv4_header;
+
+/*ICMP Header*/
+typedef struct icmp_heaader {
+	u_char type;
+	u_char code; 
+	u_short cks;
+} icmp_header;
 
 /* Prints tha packet type from an Ethernet packet */
 void print_pkt_type (u_short *pkt_type, const u_char *t_byte0, const u_char *t_byte1) {
@@ -258,23 +264,28 @@ void print_hwType (const u_char *hwType0, const u_char *hwType1){
 	}
 }
 
-void print_opCode (const u_char *opCode0, const u_char *opCode1){
+void print_opCode (const u_char *opCode0, const u_char *opCode1, int *arp, int *rarp){
 	u_short hwType = *opCode0 * 255 + *opCode1;
 	switch (hwType) {
 		case 1:
 			printf("\nOperation code: 1 - ARP Request");
+			++(*arp);
 			break;
 		case 2:
 			printf("\nOperation code: 2 - ARP Reply");
+			++(*arp);
 			break;
 		case 3:
 			printf("\nOperation code: 3 - RARP Request");
+			++(*rarp);
 			break;
 		case 4:
 			printf("\nOperation code: 4 - RARP Reply");
+			++(*rarp);
 			break;
 		default:
 			printf("\nOperation code: Unidentified");
+			++(*arp);
 			break;
 	}
 }
@@ -575,7 +586,119 @@ void print_ipTos(const u_char *tos) {
 	}
 }
 
-const u_char ipv4Analysis (ipv4_header *ip_header) {
+void print_icmp_desc(u_char *type, u_char *code) {
+	switch(*type) {
+		case 0:
+			printf("\nICMP Type: %d\nICMP Code:%d\nEcho Reply", *type, *code);
+			break;
+		case 3:
+			switch(*code) {
+				case 0:
+					printf("\nICMP Type: %d\nICMP Code:%d\nDestination Network Unreachable", *type, *code);
+					break;
+				case 1:
+					printf("\nICMP Type: %d\nICMP Code:%d\nDestination Host Unreachable", *type, *code);
+					break;
+				case 2:
+					printf("\nICMP Type: %d\nICMP Code:%d\nDestination Protocol Unreachable", *type, *code);
+					break;
+				case 3:
+					printf("\nICMP Type: %d\nICMP Code:%d\nDestination Port Unreachable", *type, *code);
+					break;
+				case 4:
+					printf("\nICMP Type: %d\nICMP Code:%d\nFragmentation Needed and DF Flag Set", *type, *code);
+					break;
+				case 5:
+					printf("\nICMP Type: %d\nICMP Code:%d\nSource Route Failed", *type, *code);
+					break;
+				default:
+					printf("\nICMP Type: %d\nICMP Code:%d\nDestination Unreachable", *type, *code);
+					break;
+			}
+			break;
+		case 5:
+			switch(*code) {
+				case 0:
+					printf("\nICMP Type: %d\nICMP Code:%d\nRedirect Datagram for the Network", *type, *code);
+					break;
+				case 1:
+					printf("\nICMP Type: %d\nICMP Code:%d\nRedirect Datagram for the Host", *type, *code);
+					break;
+				case 2:
+					printf("\nICMP Type: %d\nICMP Code:%d\nRedirect Datagram for the Type of Service and Network",
+							*type, *code);
+					break;
+				case 3:
+					printf("\nICMP Type: %d\nICMP Code:%d\nRedirect Datagram for the Service and Host", *type, *code);
+					break;
+				default:
+					printf("\nICMP Type: %d\nICMP Code:%d\nRedirect Message", *type, *code);
+					break;
+			}
+			break;
+		case 8:
+			printf("\nICMP Type: %d\nICMP Code:%d\nEcho Request", *type, *code);
+			break;
+		case 9:
+			if(*code == 0) printf("\nICMP Type: %d\nICMP Code:%d\nRouter Advertisement\nUse to Discover Addresses of Operational Routers.",
+									*type, *code);
+			else printf("\nICMP Type: %d\nICMP Code:%d\nRouter Advertisement", *type, *code);
+			break;
+		case 10:
+			if(*code == 0) printf("\nICMP Type: %d\nICMP Code:%d\nRouter Solicitation\nUse to Discover Addresses of Operational Routers.",
+									*type, *code);
+			else printf("\nICMP Type: %d\nICMP Code:%d\nRouter Solicitation", *type, *code);
+			break;
+		case 11:
+			if(*code == 0) printf("\nICMP Type: %d\nICMP Code:%d\nTime to Live Exceeded in Transit",
+									*type, *code);
+			else if(*code == 1) printf("\nICMP Type: %d\nICMP Code:%d\nFragment Reassembly Time Exceeded", *type, *code);
+			else printf("\nICMP Type: %d\nICMP Code:%d\nTime Exceeded", *type, *code);
+			break;
+		case 12:
+			switch(*code) {
+				case 0:
+					printf("\nICMP Type: %d\nICMP Code:%d\nParameter Problem: Pointer Indicates Error", *type, *code);
+					break;
+				case 1:
+					printf("\nICMP Type: %d\nICMP Code:%d\nParameter Problem: Missing Required Option", *type, *code);
+					break;
+				case 2:
+					printf("\nICMP Type: %d\nICMP Code:%d\nParameter Problem: Bad Length",
+							*type, *code);
+					break;
+				default:
+					printf("\nICMP Type: %d\nICMP Code:%d\nParameter Problem", *type, *code);
+					break;
+			}
+			break;
+		case 13:
+			if(*code == 0) printf("\nICMP Type: %d\nICMP Code:%d\nTimestamp", *type, *code);
+			else printf("\nICMP Type: %d\nICMP Code:%d\nUsed for Time Synchronization", *type, *code);
+			break;
+		case 14:
+			if(*code == 0) printf("\nICMP Type: %d\nICMP Code:%d\nTimestamp reply", *type, *code);
+			else printf("\nICMP Type: %d\nICMP Code:%d\nReply to Timestamp Message", *type, *code);
+			break;
+		default:
+			printf("\nICMP Type: %d\nICMP Code:%d", *type, *code);
+			break;
+	}
+}
+
+void icmpAnalysis(icmp_header* icmp_h, u_char* ihl, int *icmp) {
+	++(*icmp);
+	*ihl += sizeof(icmp_header);
+	printf("\nICMP");
+	print_icmp_desc(&icmp_h->type, &icmp_h->code);
+	printf("\nICMP Header Checksum: %x", icmp_h->cks);
+}
+
+/*void igmpAnalysis(igmp_header* igmp_h, u_char* ihl) {
+	*ihl += sizeof(igmp_header);
+}*/
+
+u_char ipv4Analysis (ipv4_header *ip_header, int *icmp, int* igmp) {
 	u_char ihl = (ip_header->version_ihl & 15) * 4, i;
 	printf("\nIP PDU\nInternet Protocol Version: %d\nIHL (IP Header Length): %d",
 	ip_header->version_ihl >> 4, ihl); //Version & IHL
@@ -588,7 +711,7 @@ const u_char ipv4Analysis (ipv4_header *ip_header) {
 	printf("\nFragment offset: %d", ip_header->flags_fragmentOffest & 8191);
 	printf("\nTime to live (number of network hops): %d", ip_header->ttl);
 	print_ipProtocol(&ip_header->protocol);
-	printf("\nHeader checksum: %d", ip_header->cheksum); //Cheksum
+	printf("\nHeader checksum: %x", ip_header->cheksum); //Cheksum
 	printf("\nSource IP Address: %d.%d.%d.%d", ip_header->source_address.a, ip_header->source_address.b,
 	ip_header->source_address.c, ip_header->source_address.d); // Source IP Addr
 	printf("\nDestination IP Address: %d.%d.%d.%d", ip_header->destination_address.a, ip_header->destination_address.b,
@@ -600,6 +723,8 @@ const u_char ipv4Analysis (ipv4_header *ip_header) {
 			if ((i % LINE_LEN) == 0 && i != 0) printf("\n");
 		}
 	}
+	if(ip_header->protocol == 1)icmpAnalysis((icmp_header*)(ip_header + ihl), &ihl, icmp);
+	//else if (ip_header->protocol == 2) igmpAnalysis((igmp_header*)ip_header + ihl, &ihl, igmp);
 	return ihl;
 }
 
