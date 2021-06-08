@@ -9,31 +9,36 @@
 #define LINE_LEN 16
 
 #include <pcap.h>
-#include "protocols.h"
+#include "ethernet.h"
+#include "llc.h"
+#include "arp.h"
+#include "icmp.h"
+#include "ip.h"
 
 pcap_t *adhandle;
-int p = 0, ip = 0, arp = 0, rarp = 0, llc = 0, icmp = 0, igmp = 0, tcp = 0, udp = 0, nBytes = 0;
+unsigned int p = 0, ip = 0, arp = 0, rarp = 0, llc = 0, icmp = 0, igmp = 0, tcp = 0, udp = 0, nBytes = 0;
 
 /* Callback function invoked by libpcap for every incoming packet */
-void packet_handler(u_char *param, const struct pcap_pkthdr *header, const u_char *pkt_data) {
+void packet_handler(u_char *dumpfile, const struct pcap_pkthdr *header, const u_char *pkt_data) {
 	char control;
 	u_int i = 0;
 	u_short length_or_type;
-	/*
-	 * unused parameters
-	 */
-	(void)(param);
+	struct tm *ltime;
+	char timestr[16];
+	time_t local_tv_sec;
+	/* save the packet on the dump file */
+    if(dumpfile) pcap_dump(dumpfile, header, pkt_data);
+	/* convert the timestamp to readable format */
+	local_tv_sec = header->ts.tv_sec;
+	ltime=localtime(&local_tv_sec);
+	strftime(timestr, sizeof(timestr), "%H:%M:%S", ltime);
 	/* print pkt timestamp and pkt len */
-    printf("Packet timestamp and length: %ld:%ld (%ld)\n", header->ts.tv_sec,
-															header->ts.tv_usec,
-															header->len);
+	printf("Packet timestamp: %s,%.6d\nLength:%d\n", timestr, header->ts.tv_usec, header->len);
 	/* Packet Analysis */
     printf("Destination MAC Address: "); //Destination MAC Address
-    for (i = 0; (i < 6) ; i++)
-        printf("%.2x ", pkt_data[i]);
+    for (i = 0; (i < 6) ; i++)  printf("%.2x ", pkt_data[i]);
     printf("\nSource MAC Address: "); //Source MAC Address
-    for (i = 6; (i < 12) ; i++)
-        printf("%.2x ", pkt_data[i]);
+    for (i = 6; (i < 12) ; i++) printf("%.2x ", pkt_data[i]);
     length_or_type = pkt_data[i] * 256 + pkt_data[13];
 	if(length_or_type < 1500){ //IEEE 802.3 LLC Analysis
 		llc++;
@@ -42,13 +47,13 @@ void packet_handler(u_char *param, const struct pcap_pkthdr *header, const u_cha
     	printf("\nDestination Service Access Point (DSAP): %.2x\n", pkt_data[14]); //DSAP
     	printf((pkt_data[14] & 1 ? "Group" : "Individual")); //Indiviual or Group
     	print_sap_protocol(&pkt_data[14]); //DSAP Protocol
-    	printf("\nSource Service Access Point (DSAP): %.2x\n", pkt_data[15]);
+		printf("\nSource Service Access Point (DSAP): %.2x\n", pkt_data[15]);
     	printf((pkt_data[15] & 1) ? "Response" : "Command"); //Command or Response
     	print_sap_protocol(&pkt_data[15]); //SSAP Protocol
-    	if(!(pkt_data[16] & 1)){
-    		printf("\nI packet");
+		if(!(pkt_data[16] & 1)){
+			printf("\nI packet");
     		if(length_or_type > 3){ //I Packet with length > 3
-    			printf("\nReceive sequence number: %d", (pkt_data[17] >> 1) & 127);
+				printf("\nReceive sequence number: %d", (pkt_data[17] >> 1) & 127);
 				printf("\nSend sequence number: %d", (pkt_data[16] >> 1) & 127);
 				printf((pkt_data[17] & 1) ? "\nPoll bit P/F = 1" : "\nFinal bit P/F = 0");
 				printf("\nData: \n");
@@ -58,8 +63,7 @@ void packet_handler(u_char *param, const struct pcap_pkthdr *header, const u_cha
 				printf((pkt_data[16] & 16) ? "\nPoll bit P/F = 1" : "\nFinal bit P/F = 0");
 				printf("\nData: \n%.2x ", pkt_data[17]);
 			}
-		}
-		else
+		} else
 			if(!((pkt_data[16] >> 1) & 1)){
 				printf("\nS packet"); 
 				if(length_or_type > 3){ //S Packet with length > 3
@@ -80,24 +84,21 @@ void packet_handler(u_char *param, const struct pcap_pkthdr *header, const u_cha
 				printf("\nData: \n%.2x ", pkt_data[17]);
 			}
 	    for (i = 18; i < (header->caplen - 4); i++) { //LLC PDU Data
-        	printf("%.2x ", pkt_data[i]);
-        	if ((i % LINE_LEN) == 0) printf("\n");
-   		}
-   		printf("\nCRC: ");
-	    for (i = header->len - 4; i < header->caplen; i++) printf("%.2x ", pkt_data[i]);
-	} else { //Ethernet
+			printf("%.2x ", pkt_data[i]);
+			if ((i % LINE_LEN) == 0) printf("\n");
+		}
+		printf("\nCRC: ");
+		for (i = header->len - 4; i < header->caplen; i++) printf("%.2x ", pkt_data[i]);
+	} else {
 		print_pkt_type(&length_or_type, &pkt_data[i], &pkt_data[13]);
 		if(length_or_type == 2048) { // IP Protocol Analysis
 			++ip;
 			i += ipv4Analysis((ipv4_header*)(pkt_data + 14), &icmp, &igmp);
 			printf("\nData: \n");
-			for (i += 2; i < (header->caplen - 4); i++){
+			for (i += 2; i < header->caplen; i++){
 				printf("%.2x ", pkt_data[i]);
 				if ((i % LINE_LEN) == 0) printf("\n");
 			}
-			printf("\nCRC: ");
-			for (i = header->len - 4; i < header->caplen; i++)
-				printf("%.2x ", pkt_data[i]);
 		} else if(length_or_type == 2054){     //Ethernet ARP Anyalisis
 			++arp;
 			print_hwType(&pkt_data[14], &pkt_data[15]);
@@ -107,18 +108,18 @@ void packet_handler(u_char *param, const struct pcap_pkthdr *header, const u_cha
 			printf("\nProtocol Address length: %d", pkt_data[19]);
 			print_opCode(&pkt_data[20], &pkt_data[21], &arp, &rarp);
 			printf("\nSender Hardware Address (MAC): "); //Sender Hardware Address
-			for (i = 22; (i < 27) ; i++)
-				printf("%.2x ", pkt_data[i]);
+			for (i = 22; (i < 27) ; i++) printf("%.2x ", pkt_data[i]);
 			printf("\nSender Protocol Address: %d.%d.%d.%d", pkt_data[28], pkt_data[29], pkt_data[30], pkt_data[31]);
 			printf("\nTarget Hardware Address (MAC): "); //Target Hardware Address
-			for (i = 32; (i < 37) ; i++)
-				printf("%.2x ", pkt_data[i]);
+			for (i = 32; (i < 37) ; i++) printf("%.2x ", pkt_data[i]);
 			printf("\nTarget Protocol Address: %d.%d.%d.%d", pkt_data[38], pkt_data[39], pkt_data[40], pkt_data[41]);
 			printf("\nData: ");
 			for (i = 42; i < (header->caplen - 4); i++){
 				printf("%.2x ", pkt_data[i]);
 				if ((i % LINE_LEN) == 0) printf("\n");
 			}
+			printf("\nCRC: ");
+			for (i = header->len - 4; i < header->caplen; i++) printf("%.2x ", pkt_data[i]);
 		} else { //Ethernet Data
 			printf("\nData: ");
 			for (i += 2; i < (header->caplen - 4); i++){
@@ -141,18 +142,21 @@ void packet_handler(u_char *param, const struct pcap_pkthdr *header, const u_cha
 int main() {
 	pcap_if_t *alldevs;
 	pcap_if_t *d;
+	pcap_dumper_t *dumpfile = NULL;
 	int quantity;
-	unsigned short inum, promiscuous;
+	int inum;
 	int i = 0;
 	struct bpf_program filtercode;
-	char errbuf[PCAP_ERRBUF_SIZE], filterstr[128], source[PCAP_BUF_SIZE], filepath[128];
+	char promiscuous, save, errbuf[PCAP_ERRBUF_SIZE], filterstr[128], source[PCAP_BUF_SIZE], filepath[128], dumpfilepath[128];
 	u_int netmask;
 	/* Ask if the capture will be done from a network interface or a file */
 	printf("\nCapture packets from:\n0. Network interface device\n1. A file from given path\nEnter the option number (0/1): ");
 	scanf("%hd", &inum);
-	printf("\nPromiscuous Mode:\n0. Non promiscuous.\n1. Promiscuous\nEnter the option number (0/1): ");
-	scanf("%hd", &promiscuous);
-	if(promiscuous) promiscuous = PCAP_OPENFLAG_PROMISCUOUS;
+	printf("\nCapture packets with promiscuous mode? (y/n): ");
+	fflush(stdin);
+	scanf("%c", &promiscuous);
+	if(promiscuous == 'Y' || promiscuous == 'y') promiscuous = PCAP_OPENFLAG_PROMISCUOUS;
+	else promiscuous = 0;
 	if(inum) {
 		/* Get the file path */
 		printf("\nEnter the file path for packet capturing:\n");
@@ -165,25 +169,23 @@ int main() {
 								NULL,           // port on the remote host
 								filepath,       // name of the file we want to open
 								errbuf          // error buffer
-									) != 0) {
+									)) {
 			fprintf(stderr,"\nError creating a source string\n");
 			return -1;
 		}
 		/* Open the capture file */
-		if((adhandle = (pcap_t *)pcap_open(source,	// name of the device
+		if(!(adhandle = (pcap_t *)pcap_open(source,	// name of the device
 							65536,	// portion of the packet to capture
 									// 65536 guarantees that the whole packet will be captured on all the link layers
 							promiscuous,	// promiscuous mode
 							1000,	// read timeout
 							NULL,	// authentication on the remote machine
 							errbuf	// error buffer
-								)) == NULL) {
+								))) {
 			fprintf(stderr,"\nUnable to open the file %s\n", source);
 			return -1;
 		}
 		pcap_loop(adhandle, 0, packet_handler, NULL);
-		pcap_close(adhandle);
-		return 0;
 	} else {
 		/* Retrieve the device list */
 		if(pcap_findalldevs(&alldevs, errbuf) == -1) {
@@ -211,51 +213,65 @@ int main() {
 		for(d=alldevs, i=0; i< inum-1 ;d=d->next, i++);
 		/* Open the device */
 		/* Open the adapter */
-		if ((adhandle = pcap_open_live(d->name,	// name of the device
+		if (!(adhandle = pcap_open_live(d->name,	// name of the device
 								65536,			// portion of the packet to capture. 
 												// 65536 grants that the whole packet will be captured on all the MACs.
 								promiscuous,		// promiscuous mode (nonzero means promiscuous)
 								1000,			// read timeout
 								errbuf			// error buffer
-									)) == NULL) {
+									))) {
 			fprintf(stderr, "\nUnable to open the adapter. %s is not supported by WinPcap\n", d->name);
 			/* Free the device list */
 			pcap_freealldevs(alldevs);
 			return -1;
 		}
+		i = 0;
+		do{
+			/* tcpdump filter */
+			printf("\ntcpdump syntax reference: https://www.tcpdump.org/manpages/pcap-filter.7.html\nEnter the filter string for packet capturing or 'no' (use tcpdump syntax):\n");
+			fflush(stdin);
+			scanf("%s", filterstr);
+			if(strcmp("no", filterstr)) {
+				/* Compile the filter */
+				if(pcap_compile(adhandle, &filtercode, filterstr, 1, PCAP_NETMASK_UNKNOWN) < 0){
+					i = 1;
+					fprintf(stderr, "\nError compiling into a filter program\n");
+					continue;
+				}
+				/* Set the filter */
+				if(pcap_setfilter(adhandle, &filtercode) < 0){
+					i = 1;
+					fprintf(stderr, "\nError setting the filter\n");
+					continue;
+				}
+			}
+			/* Ask how many packets will be captured */
+			printf("\n-1 or 0 value causes all the packets received in one buffer to be processed when reading a live capture,\nand causes all the packets in the file to be processed when reading a file\nEnter how many packets will be captured: ");
+			scanf("%d", &quantity);
+			/* Ask if the packet capture will be saved */
+			printf("\nSave packet capture? (y/n): ");
+			scanf("%c", &save);
+			if (save == 'Y' || save == 'y'){
+				/* Get the file path */
+				printf("\nEnter the file path for packet capture saaving (.pcap):\n");
+				fflush(stdin);
+				scanf("%s", dumpfilepath);
+				/* Open the dump file */
+				if(!(dumpfile = pcap_dump_open(adhandle, dumpfilepath))){
+					fprintf(stderr,"\nError opening output file\n");
+					return -1;
+				}
+			}
+			printf("\nListening on %s...\n", d->description);
+			/* At this point, we don't need any more the device list. Free it */
+			pcap_freealldevs(alldevs);
+			/* start the capture without end */
+			pcap_loop(adhandle, quantity, packet_handler, (unsigned char *)dumpfile);
+		} while (i);
 	}
-	i = 0;
-	do{
-		/* tcpdump filter */
-		printf("\ntcpdump syntax reference: https://www.tcpdump.org/manpages/pcap-filter.7.html\nEnter the filter string for packet capturing or 'no' (use tcpdump syntax):\n");
-		fflush(stdin);
-		scanf("%s", filterstr);
-		if(strcmp("no", filterstr)) {
-			/* Compile the filter */
-			if(pcap_compile(adhandle, &filtercode, filterstr, 1, PCAP_NETMASK_UNKNOWN) < 0){
-				i = 1;
-				fprintf(stderr, "\nError compiling into a filter program\n");
-				continue;
-			}
-			/* Set the filter */
-			if(pcap_setfilter(adhandle, &filtercode) < 0){
-				i = 1;
-				fprintf(stderr, "\nError setting the filter\n");
-				continue;
-			}
-		}
-		/* Ask how many packets will be captured */
-		printf("\n-1 or 0 value causes all the packets received in one buffer to be processed when reading a live capture,\nand causes all the packets in the file to be processed when reading a file\nEnter how many packets will be captured: ");
-		scanf("%d", &quantity);
-		printf("\nListening on %s...\n", d->description);
-		/* At this point, we don't need any more the device list. Free it */
-		pcap_freealldevs(alldevs);
-		/* start the capture without end */
-		pcap_loop(adhandle, quantity, packet_handler, NULL);
-	} while (i);
 	pcap_close(adhandle);
+	// Print stats
 	printf("\nStats:\nPackets captured: %d\nBytes captured: %d\nLLC packets: %d\nIP packets: %d\nARP packets: %d\nRARP packets: %d\nICMP packets: %d\nIGMP packets: %d\nTCP packets: %d\nUDP packets: %d\n",
 			p, nBytes, llc, ip, arp, rarp, icmp, igmp, tcp, udp);
 	return 0;
 }
-
