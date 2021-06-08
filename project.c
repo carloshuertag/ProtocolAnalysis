@@ -12,7 +12,7 @@
 #include "protocols.h"
 
 pcap_t *adhandle;
-int p = 0, ip = 0, arp = 0, rarp = 0, llc = 0, icmp = 0, igmp = 0, tcp = 0, udp = 0;
+int p = 0, ip = 0, arp = 0, rarp = 0, llc = 0, icmp = 0, igmp = 0, tcp = 0, udp = 0, nBytes = 0;
 
 /* Callback function invoked by libpcap for every incoming packet */
 void packet_handler(u_char *param, const struct pcap_pkthdr *header, const u_char *pkt_data) {
@@ -128,6 +128,7 @@ void packet_handler(u_char *param, const struct pcap_pkthdr *header, const u_cha
 			printf("\nCRC: ");
 			for (i = header->len - 4; i < header->caplen; i++) printf("%.2x ", pkt_data[i]);
 		}
+		nBytes+=i;
 	}
 	// Continue analyzing or quit
     printf("\n\nGet the next packet (Y/N, y/n)?\n");
@@ -253,8 +254,8 @@ int main() {
 		pcap_loop(adhandle, quantity, packet_handler, NULL);
 	} while (i);
 	pcap_close(adhandle);
-	printf("\nStats:\nPackets captured: %d\nLLC packets: %d\nIP packets: %d\nARP packets: %d\nRARP packets: %d\nICMP packets: %d\nIGMP packets: %d\nTCP packets: %d\nUDP packets: %d\n",
-			p, llc, ip, arp, rarp, icmp, igmp, tcp, udp);
+	printf("\nStats:\nPackets captured: %d\nBytes captured: %d\nLLC packets: %d\nIP packets: %d\nARP packets: %d\nRARP packets: %d\nICMP packets: %d\nIGMP packets: %d\nTCP packets: %d\nUDP packets: %d\n",
+			p, nBytes, llc, ip, arp, rarp, icmp, igmp, tcp, udp);
 	return 0;
 }
 
