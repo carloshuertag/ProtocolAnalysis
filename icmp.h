@@ -112,3 +112,4 @@ void icmpAnalysis(icmp_header* icmp_h, u_char* ihl, int *icmp) {
 	print_icmp_desc(&icmp_h->type, &icmp_h->code);
 	printf("\nICMP Header Checksum: %x", icmp_h->cks);
 }
+

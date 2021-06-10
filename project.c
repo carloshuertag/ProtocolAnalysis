@@ -8,18 +8,89 @@
 
 #define LINE_LEN 16
 
+#include <stdlib.h>
+#include <stdio.h>
+#include <time.h>
 #include <pcap.h>
 #include "ethernet.h"
 #include "llc.h"
 #include "arp.h"
-#include "icmp.h"
 #include "ip.h"
+#include "icmp.h"
 #include "igmp.h"
 
 pcap_t *adhandle;
 unsigned int p = 0, ip = 0, arp = 0, rarp = 0, llc = 0, icmp = 0, igmp = 0, tcp = 0, udp = 0, nBytes = 0;
 
-u_char ipv4Analysis (ipv4_header *ip_header, int *icmp, int* igmp) {
+/* ICMP Analysis */
+void icmpAnalysis(icmp_header* icmp_h, u_char* index, int *icmp) {
+	++(*icmp);
+	*index += sizeof(icmp_header);
+	printf("\nICMP");
+	print_icmp_desc(&icmp_h->type, &icmp_h->code);
+	printf("\nICMP Header Checksum: %x", icmp_h->cks);
+}
+
+/* IGMP Analysis */
+void igmpAnalysis(const u_char* igmp_pdu, u_char* index, int *igmp) {
+    if((igmp_pdu[1] == 0 && igmp_pdu[0] != 23 && igmp_pdu[0] != 34 &&
+		igmp_pdu[0] != 22) || igmp_pdu[0] == 18) { //IGMPv1
+		printf("\nIGMPv1");
+		igmpv1_header* igmp_header = (igmpv1_header*)igmp_pdu;
+		printf("\nVersion: %d", igmp_header->version_type&240);
+		printf("\nType: %d", igmp_header->version_type&15);
+		print_igmp_type(&igmp_header->version_type);
+		printf("\nUnused: %d", igmp_header->unused);
+		printf("\nChecksum: %x", igmp_header->cks);
+		printf("\nGroup Address: %d.%d.%d.%d", igmp_header->group_addrss.a,
+				igmp_header->group_addrss.b, igmp_header->group_addrss.c,
+				igmp_header->group_addrss.d); //Group Address
+		*index += sizeof(igmp_header);
+	} else if((igmp_pdu[1] != 0 && igmp_pdu[0] != 18 && igmp_pdu[0] != 34) || 
+				igmp_pdu[0] == 22) { //IGMPv2
+		printf("\nIGMPv2");
+		igmpv2_header* igmp_header = (igmpv2_header*)igmp_pdu;
+		printf("\nType: %d", igmp_header->type);
+		print_igmp_type(&igmp_header->type);
+		printf("\nMax Response Time: %x", igmp_header->mxrsptm);
+		printf("\nChecksum: %x", igmp_header->cks);
+		printf("\nGroup Address: %d.%d.%d.%d", igmp_header->group_addrss.a,
+				igmp_header->group_addrss.b, igmp_header->group_addrss.c,
+				igmp_header->group_addrss.d); //Group Address
+		*index += sizeof(igmp_header);
+	} else { //IGMPv3
+		int i, j, n = 0;
+		printf("\nIGMPv3");
+		igmpv3_header* igmp_header = (igmpv3_header*)igmp_pdu;
+		printf("\nType: %d", igmp_header->type);
+		print_igmp_type(&igmp_header->type);
+		printf("\nReserved (1): %d", igmp_header->rsv1);
+		printf("\nChecksum: %x", igmp_header->cks);
+		printf("\nReserved (2): %d", igmp_header->rsv2);
+		printf("\nNumber of group records: %d", igmp_header->ngr);
+		*index += sizeof(igmp_header);
+		igmp_group_record* group_record;
+		for(i = 0; i < igmp_header->ngr; i++) {
+			group_record = (igmp_group_record*)(igmp_pdu + sizeof(igmp_header) + n);
+			printf("\nRecord Type: %d", group_record->rtype);
+			printf("\nAuxiliar Data Length: %d", group_record->auxlen);
+			printf("\nNumber of sources: %d", group_record->nsrc);
+			printf("\nGroup Address: %d.%d.%d.%d", group_record->multicast_addrss.a,
+					group_record->multicast_addrss.b, group_record->multicast_addrss.c,
+					group_record->multicast_addrss.d); //Multicast Address
+			ipv4_address* src_addresses = (ipv4_address*)(group_record + sizeof(igmp_group_record));
+			for(j = 0; j < group_record->nsrc; j++) printf("\nSource Address [%d]: %d.%d.%d.%d", j + 1,
+															src_addresses[j].a, src_addresses[j].b,
+															src_addresses[j].c, src_addresses[j].d);
+			n += sizeof(group_record) + (j * sizeof(ipv4_address));
+		}
+	}
+	++(*igmp);
+}
+
+/* ipv4 pdu analysis */
+u_char ipv4Analysis (const u_char *ip_pdu, int *icmp, int* igmp) {
+	ipv4_header* ip_header = (ipv4_header*)ip_pdu;
 	u_char ihl = (ip_header->version_ihl & 15) * 4, i;
 	printf("\nIP PDU\nInternet Protocol Version: %d\nIHL (IP Header Length): %d",
 	ip_header->version_ihl >> 4, ihl); //Version & IHL
@@ -44,29 +115,28 @@ u_char ipv4Analysis (ipv4_header *ip_header, int *icmp, int* igmp) {
 			if ((i % LINE_LEN) == 0 && i != 0) printf("\n");
 		}
 	}
-	if(ip_header->protocol == 1)icmpAnalysis((icmp_header*)(ip_header + ihl), &ihl, &icmp);
-	//else if (ip_header->protocol == 2) igmpAnalysis(ip_header + ihl, &ihl, &igmp);
+	if(ip_header->protocol == 1) icmpAnalysis((icmp_header*)(ip_pdu + ihl), &ihl, icmp);
+	else if (ip_header->protocol == 2) igmpAnalysis(ip_pdu + ihl, &ihl, igmp);
 	return ihl;
 }
 
 /* Callback function invoked by libpcap for every incoming packet */
 void packet_handler(u_char *dumpfile, const struct pcap_pkthdr *header, const u_char *pkt_data) {
-	char control;
+	char control, timestr[16];
 	u_int i = 0;
 	u_short length_or_type;
 	struct tm *ltime;
-	char timestr[16];
 	time_t local_tv_sec;
 	/* save the packet on the dump file */
     if(dumpfile) pcap_dump(dumpfile, header, pkt_data);
 	/* convert the timestamp to readable format */
 	local_tv_sec = header->ts.tv_sec;
-	ltime=localtime(&local_tv_sec);
+	ltime = localtime(&local_tv_sec);
 	strftime(timestr, sizeof(timestr), "%H:%M:%S", ltime);
 	/* print pkt timestamp and pkt len */
-	printf("Packet timestamp: %s,%.6d\nLength:%d\n", timestr, header->ts.tv_usec, header->len);
+	printf("Packet timestamp: %s,%.6d\nLength: %d\n", timestr, header->ts.tv_usec, header->len);
 	/* Packet Analysis */
-    printf("Destination MAC Address: "); //Destination MAC Address
+    printf("\nDestination MAC Address: "); //Destination MAC Address
     for (i = 0; (i < 6) ; i++)  printf("%.2x ", pkt_data[i]);
     printf("\nSource MAC Address: "); //Source MAC Address
     for (i = 6; (i < 12) ; i++) printf("%.2x ", pkt_data[i]);
@@ -124,7 +194,7 @@ void packet_handler(u_char *dumpfile, const struct pcap_pkthdr *header, const u_
 		print_pkt_type(&length_or_type, &pkt_data[i], &pkt_data[13]);
 		if(length_or_type == 2048) { // IP Protocol Analysis
 			++ip;
-			i += ipv4Analysis((ipv4_header*)(pkt_data + 14), &icmp, &igmp);
+			i += ipv4Analysis((pkt_data + 14), &icmp, &igmp);
 			printf("\nData: \n");
 			for (i += 2; i < header->caplen; i++){
 				printf("%.2x ", pkt_data[i]);
@@ -190,7 +260,7 @@ int main() {
 	else promiscuous = 0;
 	if(inum) {
 		/* Get the file path */
-		printf("\nEnter the file path for packet capturing:\n");
+		printf("\nEnter the file path for packet capturing: ");
 		fflush(stdin);
 		scanf("%s", filepath);
 		/* Create the source string according to the new WinPcap syntax */
@@ -232,7 +302,7 @@ int main() {
 			printf("\nNo interfaces found! Make sure WinPcap is installed.\n");
 			return -1;
 		}
-		printf("Enter the interface number (1-%d):", i);
+		printf("Enter the interface number (1-%d): ", i);
 		scanf("%d", &inum);
 		if(inum < 1 || inum > i) {
 			printf("\nInterface number out of range.\n");
@@ -281,6 +351,7 @@ int main() {
 			scanf("%d", &quantity);
 			/* Ask if the packet capture will be saved */
 			printf("\nSave packet capture? (y/n): ");
+			fflush(stdin);
 			scanf("%c", &save);
 			if (save == 'Y' || save == 'y'){
 				/* Get the file path */
@@ -306,3 +377,4 @@ int main() {
 			p, nBytes, llc, ip, arp, rarp, icmp, igmp, tcp, udp);
 	return 0;
 }
+

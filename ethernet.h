@@ -81,3 +81,4 @@ void print_pkt_type (u_short *pkt_type, const u_char *t_byte0, const u_char *t_b
 			break;
 	}
 }
+

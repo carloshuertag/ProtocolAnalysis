@@ -45,3 +45,27 @@ void igmpAnalysis(u_char* igmp_pdu, u_char* index, int* igmp) {
 	//*index += sizeof(igmp_header);
     ++(*igmp);
 }
+
+void print_igmp_type(u_char *type) {
+	switch(*type) {
+		case 17:
+			printf("\nIGMP Message Type: Membership Query");
+			break;
+		case 18:
+			printf("\nIGMP Message Type: IGMPv1 Membership Report");
+			break;
+		case 22:
+			printf("\nIGMP Message Type: IGMPv2 Membership Report");
+			break;
+		case 23:
+			printf("\nIGMP Message Type: Leave Group");
+			break;
+		case 34:
+			printf("\nIGMP Message Type: IGMPv3 Membership Report");
+			break;
+		default:
+			printf("\nIGMP Message Type: Unidentified");
+			break;
+	}
+}
+
