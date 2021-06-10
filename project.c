@@ -14,9 +14,40 @@
 #include "arp.h"
 #include "icmp.h"
 #include "ip.h"
+#include "igmp.h"
 
 pcap_t *adhandle;
 unsigned int p = 0, ip = 0, arp = 0, rarp = 0, llc = 0, icmp = 0, igmp = 0, tcp = 0, udp = 0, nBytes = 0;
+
+u_char ipv4Analysis (ipv4_header *ip_header, int *icmp, int* igmp) {
+	u_char ihl = (ip_header->version_ihl & 15) * 4, i;
+	printf("\nIP PDU\nInternet Protocol Version: %d\nIHL (IP Header Length): %d",
+	ip_header->version_ihl >> 4, ihl); //Version & IHL
+	print_ipTos(&ip_header->tos);
+	printf("\nTotal Length (Size of datagram, header + data): %d", ip_header->tlen);
+	printf("\nIP Packet ID (Identification): %d", ip_header->identifier);
+	printf("\nFlag (Unused): %d", ip_header->flags_fragmentOffest >> 15);
+	printf("\nFlag (Don't fragment): %d", (ip_header->flags_fragmentOffest >> 14) & 1);
+	printf("\nFlag (More): %d", (ip_header->flags_fragmentOffest >> 13) & 1);
+	printf("\nFragment offset: %d", ip_header->flags_fragmentOffest & 8191);
+	printf("\nTime to live (number of network hops): %d", ip_header->ttl);
+	print_ipProtocol(&ip_header->protocol);
+	printf("\nHeader checksum: %x", ip_header->cheksum); //Cheksum
+	printf("\nSource IP Address: %d.%d.%d.%d", ip_header->source_address.a, ip_header->source_address.b,
+	ip_header->source_address.c, ip_header->source_address.d); // Source IP Addr
+	printf("\nDestination IP Address: %d.%d.%d.%d", ip_header->destination_address.a, ip_header->destination_address.b,
+	ip_header->destination_address.c, ip_header->destination_address.d); //Destination IP Addr
+	if(ihl > 20){ //Options & Padding
+		printf("\nOptions & Padding:\n");
+		for (i = 0; i < ihl - 20; i++) {
+			printf("%.2x ", ip_header->options_padding[i]);
+			if ((i % LINE_LEN) == 0 && i != 0) printf("\n");
+		}
+	}
+	if(ip_header->protocol == 1)icmpAnalysis((icmp_header*)(ip_header + ihl), &ihl, &icmp);
+	//else if (ip_header->protocol == 2) igmpAnalysis(ip_header + ihl, &ihl, &igmp);
+	return ihl;
+}
 
 /* Callback function invoked by libpcap for every incoming packet */
 void packet_handler(u_char *dumpfile, const struct pcap_pkthdr *header, const u_char *pkt_data) {
