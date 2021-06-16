@@ -1,3 +1,12 @@
+/*
+ * Authors: 
+ * Gutiérrez Gómez Yohan Leonardo
+ * Hernández Alvarado Abraham Jesús
+ * Huerta García Carlos
+ * Ocaña Navarrete Marco Antonio
+ * Zúñiga Rodriguez Diego
+*/
+
 #ifdef _MSC_VER
 /*
  * we do not want the warnings about the old deprecated and unsecure CRT functions
@@ -18,21 +27,14 @@
 #include "ip.h"
 #include "icmp.h"
 #include "igmp.h"
+#include "tcp.h"
+#include "udp.h"
 
 pcap_t *adhandle;
 unsigned int p = 0, ip = 0, arp = 0, rarp = 0, llc = 0, icmp = 0, igmp = 0, tcp = 0, udp = 0, nBytes = 0;
 
-/* ICMP Analysis */
-void icmpAnalysis(icmp_header* icmp_h, u_char* index, int *icmp) {
-	++(*icmp);
-	*index += sizeof(icmp_header);
-	printf("\nICMP");
-	print_icmp_desc(&icmp_h->type, &icmp_h->code);
-	printf("\nICMP Header Checksum: %x", icmp_h->cks);
-}
-
 /* IGMP Analysis */
-void igmpAnalysis(const u_char* igmp_pdu, u_char* index, int *igmp) {
+void igmpAnalysis(const u_char* igmp_pdu, u_char* index, unsigned int *igmp) {
     if((igmp_pdu[1] == 0 && igmp_pdu[0] != 23 && igmp_pdu[0] != 34 &&
 		igmp_pdu[0] != 22) || igmp_pdu[0] == 18) { //IGMPv1
 		printf("\nIGMPv1");
@@ -59,37 +61,50 @@ void igmpAnalysis(const u_char* igmp_pdu, u_char* index, int *igmp) {
 				igmp_header->group_addrss.d); //Group Address
 		*index += sizeof(igmp_header);
 	} else { //IGMPv3
-		int i, j, n = 0;
+		int i, k, n = 0;
+		u_short ngrs = 0, j = 0, nsrcs = 0;
 		printf("\nIGMPv3");
 		igmpv3_header* igmp_header = (igmpv3_header*)igmp_pdu;
-		printf("\nType: %d", igmp_header->type);
+		printf("\nType: 0x%x", igmp_header->type);
 		print_igmp_type(&igmp_header->type);
 		printf("\nReserved (1): %d", igmp_header->rsv1);
 		printf("\nChecksum: %x", igmp_header->cks);
 		printf("\nReserved (2): %d", igmp_header->rsv2);
-		printf("\nNumber of group records: %d", igmp_header->ngr);
+		ngrs = igmp_pdu[6] * 256 + igmp_pdu[7];
+		printf("\nNumber of group records: %hd", ngrs);
 		*index += sizeof(igmp_header);
+		n += sizeof(igmp_header);
 		igmp_group_record* group_record;
-		for(i = 0; i < igmp_header->ngr; i++) {
-			group_record = (igmp_group_record*)(igmp_pdu + sizeof(igmp_header) + n);
-			printf("\nRecord Type: %d", group_record->rtype);
-			printf("\nAuxiliar Data Length: %d", group_record->auxlen);
-			printf("\nNumber of sources: %d", group_record->nsrc);
-			printf("\nGroup Address: %d.%d.%d.%d", group_record->multicast_addrss.a,
+		for(i = 0; i < ngrs; i++) {
+			group_record = (igmp_group_record*)(igmp_pdu + n);
+			printf("\nGroup Record [%d]:\n\tRecord Type: %d", i + 1, group_record->rtype);
+			print_igmp_rtype(&group_record->rtype);
+			printf("\n\tAuxiliar Data Length: %d", group_record->auxlen);
+			nsrcs = igmp_pdu[n + 2]*256 + igmp_pdu[n + 3];
+			printf("\n\tNumber of sources: %hd", nsrcs);
+			printf("\n\tGroup Address: %d.%d.%d.%d", group_record->multicast_addrss.a,
 					group_record->multicast_addrss.b, group_record->multicast_addrss.c,
 					group_record->multicast_addrss.d); //Multicast Address
 			ipv4_address* src_addresses = (ipv4_address*)(group_record + sizeof(igmp_group_record));
-			for(j = 0; j < group_record->nsrc; j++) printf("\nSource Address [%d]: %d.%d.%d.%d", j + 1,
-															src_addresses[j].a, src_addresses[j].b,
-															src_addresses[j].c, src_addresses[j].d);
-			n += sizeof(group_record) + (j * sizeof(ipv4_address));
+			for(j = 0; j < nsrcs; j++) printf("\n\t\tSource Address [%d]: %d.%d.%d.%d", j + 1,
+												src_addresses[j].a, src_addresses[j].b,
+												src_addresses[j].c, src_addresses[j].d);
+			printf("\n\tAuxiliar Data:\n");
+			n += sizeof(group_record) + j * sizeof(ipv4_address);
+			*index += sizeof(group_record) + j * sizeof(ipv4_address);
+			for(k = n; k < n + group_record->auxlen * 32; k++){
+				printf("%x ",igmp_pdu[k]);
+				if ((i % LINE_LEN) == 0 && i != 0) printf("\n");
+			}											
+			n += group_record->auxlen * 32;
+			*index += group_record->auxlen * 32;
 		}
 	}
 	++(*igmp);
 }
 
 /* ipv4 pdu analysis */
-u_char ipv4Analysis (const u_char *ip_pdu, int *icmp, int* igmp) {
+u_char ipv4Analysis (const u_char *ip_pdu, int *icmp, int *igmp, unsigned int *tcp, unsigned int *udp) {
 	ipv4_header* ip_header = (ipv4_header*)ip_pdu;
 	u_char ihl = (ip_header->version_ihl & 15) * 4, i;
 	printf("\nIP PDU\nInternet Protocol Version: %d\nIHL (IP Header Length): %d",
@@ -115,8 +130,21 @@ u_char ipv4Analysis (const u_char *ip_pdu, int *icmp, int* igmp) {
 			if ((i % LINE_LEN) == 0 && i != 0) printf("\n");
 		}
 	}
-	if(ip_header->protocol == 1) icmpAnalysis((icmp_header*)(ip_pdu + ihl), &ihl, icmp);
-	else if (ip_header->protocol == 2) igmpAnalysis(ip_pdu + ihl, &ihl, igmp);
+	switch(ip_header->protocol) {
+		case 1:
+			icmpAnalysis((icmp_header*)(ip_pdu + ihl), &ihl, icmp);
+			break;
+		case 2:
+			igmpAnalysis(ip_pdu + ihl, &ihl, igmp);
+			break;
+		case 6:
+			tcpAnalysis((tcp_header*)ip_pdu + ihl, &ihl, tcp);
+			break;
+		case 17:
+			//udpAnalysis((udp_header*)ip_pdu + ihl, &ihl, udp);
+			break;
+		default: break;
+	}
 	return ihl;
 }
 
@@ -194,9 +222,9 @@ void packet_handler(u_char *dumpfile, const struct pcap_pkthdr *header, const u_
 		print_pkt_type(&length_or_type, &pkt_data[i], &pkt_data[13]);
 		if(length_or_type == 2048) { // IP Protocol Analysis
 			++ip;
-			i += ipv4Analysis((pkt_data + 14), &icmp, &igmp);
+			i += ipv4Analysis((pkt_data + 14), &icmp, &igmp, &tcp, &udp);
 			printf("\nData: \n");
-			for (i += 2; i < header->caplen; i++){
+			for (i += 0; i < header->caplen; i++){
 				printf("%.2x ", pkt_data[i]);
 				if ((i % LINE_LEN) == 0) printf("\n");
 			}
@@ -214,13 +242,6 @@ void packet_handler(u_char *dumpfile, const struct pcap_pkthdr *header, const u_
 			printf("\nTarget Hardware Address (MAC): "); //Target Hardware Address
 			for (i = 32; (i < 37) ; i++) printf("%.2x ", pkt_data[i]);
 			printf("\nTarget Protocol Address: %d.%d.%d.%d", pkt_data[38], pkt_data[39], pkt_data[40], pkt_data[41]);
-			printf("\nData: ");
-			for (i = 42; i < (header->caplen - 4); i++){
-				printf("%.2x ", pkt_data[i]);
-				if ((i % LINE_LEN) == 0) printf("\n");
-			}
-			printf("\nCRC: ");
-			for (i = header->len - 4; i < header->caplen; i++) printf("%.2x ", pkt_data[i]);
 		} else { //Ethernet Data
 			printf("\nData: ");
 			for (i += 2; i < (header->caplen - 4); i++){
@@ -250,6 +271,10 @@ int main() {
 	struct bpf_program filtercode;
 	char promiscuous, save, errbuf[PCAP_ERRBUF_SIZE], filterstr[128], source[PCAP_BUF_SIZE], filepath[128], dumpfilepath[128];
 	u_int netmask;
+	/* Title */
+	printf("\nNetwork Protocol Analyzer using pcap library for Windows by:");
+	/* Authors */
+	printf("\nGutiérrez Gómez Yohan Leonardo\nHernández Alvarado Abraham Jesús\nHuerta García Carlos\nOcaña Navarrete Marco Antonio\nZúñiga Rodriguez Diego\n\nWelcome:\n");
 	/* Ask if the capture will be done from a network interface or a file */
 	printf("\nCapture packets from:\n0. Network interface device\n1. A file from given path\nEnter the option number (0/1): ");
 	scanf("%hd", &inum);
