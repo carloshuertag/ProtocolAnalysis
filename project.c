@@ -31,13 +31,14 @@
 #include "udp.h"
 
 pcap_t *adhandle;
-unsigned int p = 0, ip = 0, arp = 0, rarp = 0, llc = 0, icmp = 0, igmp = 0, tcp = 0, udp = 0, nBytes = 0;
+unsigned int p = 0, ip = 0, arp = 0, rarp = 0, llc = 0, icmp = 0,
+				igmp = 0, tcp = 0, udp = 0, nBytes = 0;
 
 /* IGMP Analysis */
 void igmpAnalysis(const u_char* igmp_pdu, u_char* index, unsigned int *igmp) {
     if((igmp_pdu[1] == 0 && igmp_pdu[0] != 23 && igmp_pdu[0] != 34 &&
 		igmp_pdu[0] != 22) || igmp_pdu[0] == 18) { //IGMPv1
-		printf("\nIGMPv1");
+		printf("\nIGMP (Internet Group Management Protocol) v1");
 		igmpv1_header* igmp_header = (igmpv1_header*)igmp_pdu;
 		printf("\nVersion: %d", igmp_header->version_type&240);
 		printf("\nType: %d", igmp_header->version_type&15);
@@ -50,7 +51,7 @@ void igmpAnalysis(const u_char* igmp_pdu, u_char* index, unsigned int *igmp) {
 		*index += sizeof(igmp_header);
 	} else if((igmp_pdu[1] != 0 && igmp_pdu[0] != 18 && igmp_pdu[0] != 34) || 
 				igmp_pdu[0] == 22) { //IGMPv2
-		printf("\nIGMPv2");
+		printf("\nIGMP (Internet Group Management Protocol) v2");
 		igmpv2_header* igmp_header = (igmpv2_header*)igmp_pdu;
 		printf("\nType: %d", igmp_header->type);
 		print_igmp_type(&igmp_header->type);
@@ -63,7 +64,7 @@ void igmpAnalysis(const u_char* igmp_pdu, u_char* index, unsigned int *igmp) {
 	} else { //IGMPv3
 		int i, k, n = 0;
 		u_short ngrs = 0, j = 0, nsrcs = 0;
-		printf("\nIGMPv3");
+		printf("\nIGMP (Internet Group Management Protocol) v3");
 		igmpv3_header* igmp_header = (igmpv3_header*)igmp_pdu;
 		printf("\nType: 0x%x", igmp_header->type);
 		print_igmp_type(&igmp_header->type);
@@ -107,7 +108,7 @@ void igmpAnalysis(const u_char* igmp_pdu, u_char* index, unsigned int *igmp) {
 u_char ipv4Analysis (const u_char *ip_pdu, int *icmp, int *igmp, unsigned int *tcp, unsigned int *udp) {
 	ipv4_header* ip_header = (ipv4_header*)ip_pdu;
 	u_char ihl = (ip_header->version_ihl & 15) * 4, i;
-	printf("\nIP PDU\nInternet Protocol Version: %d\nIHL (IP Header Length): %d",
+	printf("\nIP (Internet Protocol)\nInternet Protocol Version: %d\nIHL (IP Header Length): %d",
 	ip_header->version_ihl >> 4, ihl); //Version & IHL
 	print_ipTos(&ip_header->tos);
 	printf("\nTotal Length (Size of datagram, header + data): %d", ip_header->tlen);
@@ -138,10 +139,11 @@ u_char ipv4Analysis (const u_char *ip_pdu, int *icmp, int *igmp, unsigned int *t
 			igmpAnalysis(ip_pdu + ihl, &ihl, igmp);
 			break;
 		case 6:
-			tcpAnalysis((tcp_header*)ip_pdu + ihl, &ihl, tcp);
+			tcpAnalysis((tcp_header*)(ip_pdu + ihl), &ihl, tcp);
 			break;
 		case 17:
-			//udpAnalysis((udp_header*)ip_pdu + ihl, &ihl, udp);
+			udpAnalysis((udp_header*)(ip_pdu + ihl), &ihl, udp);
+			ihl += 2; //return position after transport protocol pdu
 			break;
 		default: break;
 	}
@@ -172,7 +174,7 @@ void packet_handler(u_char *dumpfile, const struct pcap_pkthdr *header, const u_
 	if(length_or_type < 1500){ //IEEE 802.3 LLC Analysis
 		llc++;
 		printf("\nPacket type: IEEE 802.3");
-    	printf("\nLLC PDU\nData length: %d", length_or_type); //Data length
+    	printf("\nLLC (Logic Link Control)\nData length: %d", length_or_type); //Data length
     	printf("\nDestination Service Access Point (DSAP): %.2x\n", pkt_data[14]); //DSAP
     	printf((pkt_data[14] & 1 ? "Group" : "Individual")); //Indiviual or Group
     	print_sap_protocol(&pkt_data[14]); //DSAP Protocol
@@ -233,6 +235,7 @@ void packet_handler(u_char *dumpfile, const struct pcap_pkthdr *header, const u_
 			print_hwType(&pkt_data[14], &pkt_data[15]);
 			printf((pkt_data[16] * 255 + pkt_data[17]) == 2048 ? "\nProtocol type: Internet Protocol IP"
 																: "\nProtocol Type: Unidentified");
+			printf("\nARP (Address Resolution Protocol)");
 			printf("\nHardware Address length  (MAC): %d", pkt_data[18]);
 			printf("\nProtocol Address length: %d", pkt_data[19]);
 			print_opCode(&pkt_data[20], &pkt_data[21], &arp, &rarp);

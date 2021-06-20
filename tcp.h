@@ -45,7 +45,7 @@ void tcpOptionsAnalysis(u_int *tcp_opts_pdng) {
 void tcpAnalysis(tcp_header *tcp_h, u_char *index, unsigned int* tcp) {
 	++(*tcp);
 	*index += sizeof(tcp_header);
-	printf("\nTCP");
+	printf("\nTCP (Transmission Control Protocol)");
 	printf("\nSource Port: %d", tcp_h->srcport);
 	printf("\nDestination Port: %d", tcp_h->dstport);
 	printf("\nSequence Number: %d", tcp_h->sqncn);
